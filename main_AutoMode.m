@@ -4,14 +4,17 @@ classdef main_AutoMode < matlab.apps.AppBase
     properties (Access = public)
         UIFigure                        matlab.ui.Figure
         InputSettingsPanel              matlab.ui.container.Panel
-        LoadArrayButton                 matlab.ui.control.Button
-        tausecEditField                 matlab.ui.control.NumericEditField
-        Label_3                         matlab.ui.control.Label
-        PresetsDropDown                 matlab.ui.control.DropDown
-        PresetsDropDownLabel            matlab.ui.control.Label
         LoadaudiofileButton             matlab.ui.control.Button
-        LoadlogfileButton               matlab.ui.control.Button
+        tausecEditField                 matlab.ui.control.NumericEditField
+        PresetsDropDown                 matlab.ui.control.DropDown
+        LoadArrayButton                 matlab.ui.control.Button
+        Label_3                         matlab.ui.control.Label
+        PresetsDropDownLabel            matlab.ui.control.Label
         EditArrayButton                 matlab.ui.control.Button
+        LoadlogfileButton               matlab.ui.control.Button
+        ButtonGroup_3                   matlab.ui.container.ButtonGroup
+        RAVENButton                     matlab.ui.control.RadioButton
+        AdobeAuditionButton_2           matlab.ui.control.RadioButton
         AnalysisPanel                   matlab.ui.container.Panel
         EncodingDropDownLabel           matlab.ui.control.Label
         MaxgaindBEditFieldLabel         matlab.ui.control.Label
@@ -39,6 +42,7 @@ classdef main_AutoMode < matlab.apps.AppBase
         ThresholddBSliderLabel_2        matlab.ui.control.Label
         PlotspectrogramButton           matlab.ui.control.Button
         PowermapvideoPanel              matlab.ui.container.Panel
+        DoneLamp_4Label                 matlab.ui.control.Label
         msecEditFieldLabel              matlab.ui.control.Label
         f_startHzEditField              matlab.ui.control.NumericEditField
         f_endHzEditField                matlab.ui.control.NumericEditField
@@ -72,6 +76,8 @@ classdef main_AutoMode < matlab.apps.AppBase
         LabelDetectionNumber            matlab.ui.control.Label
         LabelProgress                   matlab.ui.control.Label
         LabelProgress_2                 matlab.ui.control.Label
+        ExportambifilesButton           matlab.ui.control.Button
+        DoneLamp_4                      matlab.ui.control.Lamp
         ScrollingSpectrogramvideoPanel  matlab.ui.container.Panel
         TimewindowmsecEditField_2Label  matlab.ui.control.Label
         TimewindowmsecEditField_2       matlab.ui.control.NumericEditField
@@ -135,6 +141,7 @@ classdef main_AutoMode < matlab.apps.AppBase
         xDet;
         Twin;
         Nwin;
+        hopsize;
         fps;
         XDet; % TF-domain signals 
         NwindowsDet;
@@ -458,23 +465,48 @@ classdef main_AutoMode < matlab.apps.AppBase
 
         % Button pushed function: LoadlogfileButton
         function LoadlogfileButtonPushed(app, event)
+           
             %% Load log file
-            [file_in,path_in] = uigetfile('*.txt');
-            fileName = fullfile(path_in,file_in);
             
-            LOG0 = readmatrix(fileName);
-            LOG = [ [0 1 500 1000] ; LOG0]; % adding a dummy detection at t=0sec
+            if app.RAVENButton.Value == true
+                [file_in,path_in] = uigetfile('*.txt');
+                fileName = fullfile(path_in,file_in);
 
-            app.t_start_Det = max(0,LOG(:,1)-app.tausecEditField.Value);   % extend by tau | use max() to avoid negative times
-            app.t_end_Det   = LOG(:,2)+app.tausecEditField.Value;   % extend by tau
+                LOG0 = readmatrix(fileName);
+                LOG = [ [0 0.5 500 1000]; LOG0]; % adding a dummy detection at t=0sec
 
-            app.f_start_Det = LOG(:,3);
-            app.f_end_Det = LOG(:,4);
+                app.t_start_Det = max(0,LOG(:,1)-app.tausecEditField.Value);   % extend by tau | use max() to avoid negative times
+                app.t_end_Det   = LOG(:,2)+app.tausecEditField.Value;   % extend by tau
 
-            app.Ndet = size(LOG,1);
-            app.Labels = cell(app.Ndet,1);
-            for n=1:app.Ndet
-                app.Labels{n} = num2str(app.t_start_Det(n));
+                app.f_start_Det = LOG(:,3);
+                app.f_end_Det = LOG(:,4);
+
+                app.Ndet = size(LOG,1);
+                app.Labels = cell(app.Ndet,1);
+                for n=1:app.Ndet
+                    app.Labels{n} = num2str(app.t_start_Det(n));
+                end
+            elseif app.AdobeAuditionButton_2.Value == true
+                [file_in,path_in] = uigetfile('*.csv');
+                fileName = fullfile(path_in,file_in);
+
+                LOG0 = readmatrix(fileName);
+                F_sampling = LOG0(1,5);
+                LOG = [ [NaN  NaN  0 0.5*F_sampling  F_sampling  NaN NaN]; LOG0]; % adding a dummy detection at t=0sec
+
+                app.Ndet = size(LOG,1);
+
+                app.t_start_Det = max(0,LOG(:,3)./F_sampling-app.tausecEditField.Value);
+                app.t_end_Det   = app.t_start_Det + LOG(:,4)./F_sampling+app.tausecEditField.Value;
+
+                app.f_start_Det = 200*ones(app.Ndet,1);
+                app.f_end_Det   = 2500*ones(app.Ndet,1);
+
+                app.Labels = cell(app.Ndet,1);
+                for n=1:app.Ndet
+                    app.Labels{n} = num2str(app.t_start_Det(n));
+                end
+
             end
 
             app.logFile_loaded = true;
@@ -490,7 +522,7 @@ classdef main_AutoMode < matlab.apps.AppBase
             app.samplesEditField.Value = app.Nwin;
 
             %%%%%%%%%%%%%%%%%%%%%%%%%%%
-            app.fps = round(2/app.Twin);
+            app.fps = round(2/app.Twin); % rounding the frame rate
             app.msecEditField.Value = (app.nb_av+1)*app.Twin/2*1000; % averaging time in msec
         end
 
@@ -509,7 +541,7 @@ classdef main_AutoMode < matlab.apps.AppBase
                 end
 
                 %% TF transform
-                hopsize = app.Nwin/2;
+                app.hopsize = app.Nwin/2;
 
                 app.XDet = cell(app.Ndet,1);
                 app.NwindowsDet =zeros(app.Ndet,1);
@@ -518,11 +550,11 @@ classdef main_AutoMode < matlab.apps.AppBase
 
                     x_n = app.xDet{n};
                     N_n = size(x_n,1); % number of samples
-                    Nwindows = length(0:hopsize:N_n)+1; % number of time windows
+                    Nwindows = length(0:app.hopsize:N_n)+1; % number of time windows
 
                     X = zeros(app.Nwin,Nwindows,app.M);
                     for m=1:app.M
-                        [X(:,:,m),time,freq_full] = stft(x_n(:,m),app.Nwin,hopsize,app.Fs);
+                        [X(:,:,m),time,freq_full] = stft(x_n(:,m),app.Nwin,app.hopsize,app.Fs);
                     end
                     app.XDet{n} = X(1:app.Nwin/2+1,:,:);
 
@@ -533,6 +565,7 @@ classdef main_AutoMode < matlab.apps.AppBase
                 app.freq = freq_full(1:app.Nwin/2+1);
                 Nbins = length(app.freq);
 
+                % display(['Nwindows, Nbins: ' num2str(Nwindows), num2str(Nbins) ])
 
                 %% Encode to SHs
                 aziElev2aziPolar = @(dirs) [dirs(:,1) pi/2-dirs(:,2)]; % function to convert from azimuth-elevation to azimuth-inclination
@@ -583,8 +616,9 @@ classdef main_AutoMode < matlab.apps.AppBase
                     temp = Omni;
                     temp(end,:) = real(temp(end,:));
                     temp = [temp; conj(temp(end-1:-1:2,:))];
-                    omni = real(istft(temp,app.Nwin,hopsize));
+                    omni = real(istft(temp,app.Nwin,app.hopsize));
                     app.omniDet{n} = omni;
+                   % display(['omni dimensions: ' num2str(size(omni))])
                 end
 
 
@@ -600,7 +634,7 @@ classdef main_AutoMode < matlab.apps.AppBase
 
 
                 %% TF transform
-                hopsize = app.Nwin/2;
+                app.hopsize = app.Nwin/2;
 
                 app.SDet = cell(app.Ndet,1);
                 app.NwindowsDet =zeros(app.Ndet,1);
@@ -609,11 +643,11 @@ classdef main_AutoMode < matlab.apps.AppBase
 
                     s_n = app.sDet{n};
                     N_n = size(s_n,1); % number of samples
-                    Nwindows = length(0:hopsize:N_n)+1; % number of time windows
+                    Nwindows = length(0:app.hopsize:N_n)+1; % number of time windows
 
                     S = zeros(app.Nwin,Nwindows,app.M);
                     for m=1:app.M
-                        [S(:,:,m),time,freq_full] = stft(s_n(:,m),app.Nwin,hopsize,app.Fs);
+                        [S(:,:,m),time,freq_full] = stft(s_n(:,m),app.Nwin,app.hopsize,app.Fs);
                     end
                     Stmp =  S(1:app.Nwin/2+1,:,:);
                     app.SDet{n} = permute(Stmp,[3 2 1]);
@@ -623,7 +657,7 @@ classdef main_AutoMode < matlab.apps.AppBase
                 end
 
                 app.freq = freq_full(1:app.Nwin/2+1);
-
+                %  Nbins = length(app.freq);
 
                 %% Get the Omnis for the spectrogram
                 app.OmniDet = cell(app.Ndet,1);
@@ -658,7 +692,8 @@ classdef main_AutoMode < matlab.apps.AppBase
             app.PlayButton.Enable = "on";
             app.StopButton.Enable = "on";
             app.CreateandexportpowermapsButton.Enable = "on";
-          
+            app.ExportambifilesButton.Enable = "on";
+
         end
 
         % Value changed function: DetectionEditField
@@ -956,7 +991,7 @@ classdef main_AutoMode < matlab.apps.AppBase
                             pause(eps)
                         end
                     case "SH-MVDR"
-                        a_tau = 0.5; % temporal smoothing constant
+                        a_tau = 0.8; % temporal smoothing constant
                         P_avf = zeros(L,T);
                         COV_old = zeros(N_comp,N_comp,K);
                         for tt=1:T
@@ -967,7 +1002,7 @@ classdef main_AutoMode < matlab.apps.AppBase
                                 if tt==1
                                     COV = COV_new;
                                 else
-                                    COV = a_tau*COV_new + (1-a_tau)*COV_old(:,:,kk);
+                                    COV = (1-a_tau)*COV_new + a_tau*COV_old(:,:,kk);
                                 end
                                 COV_old(:,:,kk)=COV;
                                 tempk_p = zeros(1,L);
@@ -985,7 +1020,7 @@ classdef main_AutoMode < matlab.apps.AppBase
                         end
                     case "SH-MUSIC"
                         nSrc = app.N_sourcesMUSICEditField.Value;
-                        a_tau = 0.5; % temporal smoothing constant
+                        a_tau = 0.8; % temporal smoothing constant
                         P_avf = zeros(L,T);
                         COV_old = zeros(N_comp,N_comp,K);
                         for tt=1:T
@@ -996,7 +1031,7 @@ classdef main_AutoMode < matlab.apps.AppBase
                                 if tt==1
                                     COV = COV_new;
                                 else
-                                    COV = a_tau*COV_new + (1-a_tau)*COV_old(:,:,kk);
+                                    COV = (1-a_tau)*COV_new + a_tau*COV_old(:,:,kk);
                                 end
                                 COV_old(:,:,kk)=COV;
                                 [U,~] = svd(COV); % eigenvalue decomposition with svd
@@ -1048,7 +1083,7 @@ classdef main_AutoMode < matlab.apps.AppBase
 
                 %% Calling the RenderPowermap app to create the powermap
                 app.PowermapApp = RenderPowermap_auto(app,T,grid_dirs,PHI,THETA,P_avfn);
-               
+
 
                 %% %%%%%%% Save as video
 
@@ -1144,6 +1179,51 @@ classdef main_AutoMode < matlab.apps.AppBase
             %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
             app.DoneLamp_2.Color = [0 1 0];
             app.CreateandexportpowermapsButton.Enable = 'on';
+        end
+
+        % Button pushed function: ExportambifilesButton
+        function ExportambifilesButtonPushed(app, event)
+            app.ExportambifilesButton.Enable = 'off';
+            app.DoneLamp_4.Color = [0.65 0.65 0.65];
+
+            % Select directory to save the videos, the text file, and the edl
+            selpath = uigetdir;
+
+
+
+            if app.isAmbisonic==false
+                for n=1:app.Ndet
+                    S_n = app.SDet{n};
+                    s_n=[];
+                    for j=1:size(S_n,1) % loop over ambisonic components
+                        temp = squeeze(S_n(j,:,:)).';
+                        %%%% ISTFT
+                        temp(end,:) = real(temp(end,:));
+                        temp = [temp; conj(temp(end-1:-1:2,:))];
+                        s_nj = real(istft(temp,app.Nwin,app.hopsize)); % ambisonic component j
+                        s_n = [s_n s_nj]; % collecting all ambisonic components
+                    end
+
+                    label = app.Labels{n};
+                    ambiFileName = ['ambi_' label 'sec.wav'];
+                    fullFileName  = fullfile(selpath,ambiFileName);
+                    audiowrite(fullFileName, s_n, app.Fs,'BitsPerSample',32);
+                end
+            elseif app.isAmbisonic==true
+                for n=1:app.Ndet
+                    s_n = app.sDet{n};
+
+                    label = app.Labels{n};
+                    ambiFileName = ['ambi_' label 'sec.wav'];
+                    fullFileName  = fullfile(selpath,ambiFileName);
+                    audiowrite(fullFileName, s_n, app.Fs,'BitsPerSample',32);
+                end
+
+            end
+
+
+            app.DoneLamp_4.Color = [0 1 0];
+            app.ExportambifilesButton.Enable = 'on';
         end
 
         % Button pushed function: CreateandexportspectrogramButton
@@ -1429,21 +1509,34 @@ classdef main_AutoMode < matlab.apps.AppBase
             app.PowermapvideoPanel.FontSize = 18;
             app.PowermapvideoPanel.Position = [535 232 554 384];
 
+            % Create DoneLamp_4
+            app.DoneLamp_4 = uilamp(app.PowermapvideoPanel);
+            app.DoneLamp_4.Position = [512 58 23 23];
+            app.DoneLamp_4.Color = [0.651 0.651 0.651];
+
+            % Create ExportambifilesButton
+            app.ExportambifilesButton = uibutton(app.PowermapvideoPanel, 'push');
+            app.ExportambifilesButton.ButtonPushedFcn = createCallbackFcn(app, @ExportambifilesButtonPushed, true);
+            app.ExportambifilesButton.FontSize = 14;
+            app.ExportambifilesButton.Enable = 'off';
+            app.ExportambifilesButton.Position = [339 57 120 25];
+            app.ExportambifilesButton.Text = 'Export ambi files';
+
             % Create LabelProgress_2
             app.LabelProgress_2 = uilabel(app.PowermapvideoPanel);
             app.LabelProgress_2.HorizontalAlignment = 'center';
-            app.LabelProgress_2.Position = [291 19 131 22];
+            app.LabelProgress_2.Position = [209 19 131 22];
             app.LabelProgress_2.Text = '';
 
             % Create LabelProgress
             app.LabelProgress = uilabel(app.PowermapvideoPanel);
             app.LabelProgress.HorizontalAlignment = 'center';
-            app.LabelProgress.Position = [181 18 131 22];
+            app.LabelProgress.Position = [99 18 131 22];
             app.LabelProgress.Text = '';
 
             % Create LabelDetectionNumber
             app.LabelDetectionNumber = uilabel(app.PowermapvideoPanel);
-            app.LabelDetectionNumber.Position = [106 18 98 22];
+            app.LabelDetectionNumber.Position = [24 18 98 22];
             app.LabelDetectionNumber.Text = '';
 
             % Create ThresholddBSliderLabel
@@ -1468,12 +1561,12 @@ classdef main_AutoMode < matlab.apps.AppBase
             % Create DoneLamp_2Label
             app.DoneLamp_2Label = uilabel(app.PowermapvideoPanel);
             app.DoneLamp_2Label.HorizontalAlignment = 'right';
-            app.DoneLamp_2Label.Position = [314 59 33 22];
+            app.DoneLamp_2Label.Position = [232 59 33 22];
             app.DoneLamp_2Label.Text = 'Done';
 
             % Create DoneLamp_2
             app.DoneLamp_2 = uilamp(app.PowermapvideoPanel);
-            app.DoneLamp_2.Position = [362 58 23 23];
+            app.DoneLamp_2.Position = [280 58 23 23];
             app.DoneLamp_2.Color = [0.651 0.651 0.651];
 
             % Create CreateandexportpowermapsButton
@@ -1481,7 +1574,7 @@ classdef main_AutoMode < matlab.apps.AppBase
             app.CreateandexportpowermapsButton.ButtonPushedFcn = createCallbackFcn(app, @CreateandexportpowermapsButtonPushed, true);
             app.CreateandexportpowermapsButton.FontSize = 14;
             app.CreateandexportpowermapsButton.Enable = 'off';
-            app.CreateandexportpowermapsButton.Position = [105 57 207 25];
+            app.CreateandexportpowermapsButton.Position = [23 57 207 25];
             app.CreateandexportpowermapsButton.Text = 'Create and export powermaps';
 
             % Create ButtonGroup
@@ -1651,6 +1744,12 @@ classdef main_AutoMode < matlab.apps.AppBase
             app.msecEditFieldLabel.Position = [217 101 40 22];
             app.msecEditFieldLabel.Text = '(msec)';
 
+            % Create DoneLamp_4Label
+            app.DoneLamp_4Label = uilabel(app.PowermapvideoPanel);
+            app.DoneLamp_4Label.HorizontalAlignment = 'right';
+            app.DoneLamp_4Label.Position = [464 59 33 22];
+            app.DoneLamp_4Label.Text = 'Done';
+
             % Create SpectrograminspectionPanel
             app.SpectrograminspectionPanel = uipanel(app.UIFigure);
             app.SpectrograminspectionPanel.AutoResizeChildren = 'off';
@@ -1758,7 +1857,7 @@ classdef main_AutoMode < matlab.apps.AppBase
             app.AnalysisPanel.TitlePosition = 'centertop';
             app.AnalysisPanel.Title = 'Analysis';
             app.AnalysisPanel.FontSize = 18;
-            app.AnalysisPanel.Position = [14 289 507 157];
+            app.AnalysisPanel.Position = [14 272 507 157];
 
             % Create DetectionsFoundLabel
             app.DetectionsFoundLabel = uilabel(app.AnalysisPanel);
@@ -1850,37 +1949,61 @@ classdef main_AutoMode < matlab.apps.AppBase
             app.InputSettingsPanel.BackgroundColor = [0.9412 0.9412 0.9412];
             app.InputSettingsPanel.Scrollable = 'on';
             app.InputSettingsPanel.FontSize = 18;
-            app.InputSettingsPanel.Position = [14 482 508 134];
+            app.InputSettingsPanel.Position = [14 448 507 168];
+
+            % Create ButtonGroup_3
+            app.ButtonGroup_3 = uibuttongroup(app.InputSettingsPanel);
+            app.ButtonGroup_3.AutoResizeChildren = 'off';
+            app.ButtonGroup_3.BorderType = 'none';
+            app.ButtonGroup_3.Position = [164 12 209 30];
+
+            % Create AdobeAuditionButton_2
+            app.AdobeAuditionButton_2 = uiradiobutton(app.ButtonGroup_3);
+            app.AdobeAuditionButton_2.Text = 'Adobe Audition';
+            app.AdobeAuditionButton_2.Position = [8 6 103 22];
+            app.AdobeAuditionButton_2.Value = true;
+
+            % Create RAVENButton
+            app.RAVENButton = uiradiobutton(app.ButtonGroup_3);
+            app.RAVENButton.Text = 'RAVEN';
+            app.RAVENButton.Position = [119 7 61 22];
+
+            % Create LoadlogfileButton
+            app.LoadlogfileButton = uibutton(app.InputSettingsPanel, 'push');
+            app.LoadlogfileButton.ButtonPushedFcn = createCallbackFcn(app, @LoadlogfileButtonPushed, true);
+            app.LoadlogfileButton.FontSize = 14;
+            app.LoadlogfileButton.Position = [35 15 107 25];
+            app.LoadlogfileButton.Text = 'Load log file';
 
             % Create EditArrayButton
             app.EditArrayButton = uibutton(app.InputSettingsPanel, 'push');
             app.EditArrayButton.ButtonPushedFcn = createCallbackFcn(app, @EditArrayButtonPushed, true);
             app.EditArrayButton.FontSize = 14;
             app.EditArrayButton.Enable = 'off';
-            app.EditArrayButton.Position = [345 30 97 25];
+            app.EditArrayButton.Position = [345 64 97 25];
             app.EditArrayButton.Text = 'Edit Array';
-
-            % Create LoadlogfileButton
-            app.LoadlogfileButton = uibutton(app.InputSettingsPanel, 'push');
-            app.LoadlogfileButton.ButtonPushedFcn = createCallbackFcn(app, @LoadlogfileButtonPushed, true);
-            app.LoadlogfileButton.FontSize = 14;
-            app.LoadlogfileButton.Position = [35 6 107 25];
-            app.LoadlogfileButton.Text = 'Load log file';
-
-            % Create LoadaudiofileButton
-            app.LoadaudiofileButton = uibutton(app.InputSettingsPanel, 'push');
-            app.LoadaudiofileButton.ButtonPushedFcn = createCallbackFcn(app, @LoadaudiofileButtonPushed, true);
-            app.LoadaudiofileButton.FontSize = 14;
-            app.LoadaudiofileButton.Position = [35 72 107 25];
-            app.LoadaudiofileButton.Text = 'Load audio file';
 
             % Create PresetsDropDownLabel
             app.PresetsDropDownLabel = uilabel(app.InputSettingsPanel);
             app.PresetsDropDownLabel.HorizontalAlignment = 'right';
             app.PresetsDropDownLabel.FontSize = 14;
             app.PresetsDropDownLabel.Enable = 'off';
-            app.PresetsDropDownLabel.Position = [181 74 52 22];
+            app.PresetsDropDownLabel.Position = [181 108 52 22];
             app.PresetsDropDownLabel.Text = 'Presets';
+
+            % Create Label_3
+            app.Label_3 = uilabel(app.InputSettingsPanel);
+            app.Label_3.HorizontalAlignment = 'right';
+            app.Label_3.Position = [36 62 59 22];
+            app.Label_3.Text = 'tau (sec)';
+
+            % Create LoadArrayButton
+            app.LoadArrayButton = uibutton(app.InputSettingsPanel, 'push');
+            app.LoadArrayButton.ButtonPushedFcn = createCallbackFcn(app, @LoadArrayButtonPushed, true);
+            app.LoadArrayButton.FontSize = 14;
+            app.LoadArrayButton.Enable = 'off';
+            app.LoadArrayButton.Position = [240 63 100 25];
+            app.LoadArrayButton.Text = 'Load Array';
 
             % Create PresetsDropDown
             app.PresetsDropDown = uidropdown(app.InputSettingsPanel);
@@ -1888,27 +2011,20 @@ classdef main_AutoMode < matlab.apps.AppBase
             app.PresetsDropDown.ValueChangedFcn = createCallbackFcn(app, @PresetsDropDownValueChanged, true);
             app.PresetsDropDown.Enable = 'off';
             app.PresetsDropDown.FontSize = 14;
-            app.PresetsDropDown.Position = [240 74 203 22];
+            app.PresetsDropDown.Position = [240 108 203 22];
             app.PresetsDropDown.Value = {};
-
-            % Create Label_3
-            app.Label_3 = uilabel(app.InputSettingsPanel);
-            app.Label_3.HorizontalAlignment = 'right';
-            app.Label_3.Position = [30 38 59 22];
-            app.Label_3.Text = 'tau (sec)';
 
             % Create tausecEditField
             app.tausecEditField = uieditfield(app.InputSettingsPanel, 'numeric');
             app.tausecEditField.HorizontalAlignment = 'center';
-            app.tausecEditField.Position = [95 38 40 22];
+            app.tausecEditField.Position = [101 62 40 22];
 
-            % Create LoadArrayButton
-            app.LoadArrayButton = uibutton(app.InputSettingsPanel, 'push');
-            app.LoadArrayButton.ButtonPushedFcn = createCallbackFcn(app, @LoadArrayButtonPushed, true);
-            app.LoadArrayButton.FontSize = 14;
-            app.LoadArrayButton.Enable = 'off';
-            app.LoadArrayButton.Position = [240 29 100 25];
-            app.LoadArrayButton.Text = 'Load Array';
+            % Create LoadaudiofileButton
+            app.LoadaudiofileButton = uibutton(app.InputSettingsPanel, 'push');
+            app.LoadaudiofileButton.ButtonPushedFcn = createCallbackFcn(app, @LoadaudiofileButtonPushed, true);
+            app.LoadaudiofileButton.FontSize = 14;
+            app.LoadaudiofileButton.Position = [35 106 107 25];
+            app.LoadaudiofileButton.Text = 'Load audio file';
 
             % Show the figure after all components are created
             app.UIFigure.Visible = 'on';
