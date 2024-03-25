@@ -490,14 +490,33 @@ classdef main_AutoMode < matlab.apps.AppBase
                 [file_in,path_in] = uigetfile('*.csv');
                 fileName = fullfile(path_in,file_in);
 
-                LOG0 = readmatrix(fileName);
-                F_sampling = LOG0(1,5);
-                LOG = [ [NaN  NaN  0 0.5*F_sampling  F_sampling  NaN NaN]; LOG0]; % adding a dummy detection at t=0sec
+                %%%%%%%%%%%%%%%%%%%%%%%%%%%%%% OLD .csv type %%%%%%%%%%%%%%%
+               % LOG0 = readmatrix(fileName);
+               % F_sampling = LOG0(1,5);
+               % LOG = [ [NaN  NaN  0 0.5*F_sampling  F_sampling  NaN NaN]; LOG0]; % adding a dummy detection at t=0sec
 
-                app.Ndet = size(LOG,1);
+               % app.Ndet = size(LOG,1);
 
-                app.t_start_Det = max(0,LOG(:,3)./F_sampling-app.tausecEditField.Value);
-                app.t_end_Det   = app.t_start_Det + LOG(:,4)./F_sampling+app.tausecEditField.Value;
+               % app.t_start_Det = max(0,LOG(:,3)./F_sampling-app.tausecEditField.Value);
+               % app.t_end_Det   = app.t_start_Det + LOG(:,4)./F_sampling+app.tausecEditField.Value;
+                %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+                LOG0 = readtable(fileName);
+
+                Fs_char = LOG0.TimeFormat{1};
+                tf=1; i=0;
+                while tf==1
+                    i=i+1;
+                    [~,tf] = str2num(Fs_char(1:i));
+                end
+                F_sampling = str2double(Fs_char(1:i-2));
+
+                app.Ndet = size(LOG0,1)+1; % including the dummy detection
+
+                tmp1 = max(0,LOG0.Start./F_sampling-app.tausecEditField.Value);
+                app.t_start_Det  = [0; tmp1];
+                tmp2   = tmp1 + LOG0.Duration./F_sampling+app.tausecEditField.Value;
+                app.t_end_Det  = [0.5; tmp2];
 
                 app.f_start_Det = 200*ones(app.Ndet,1);
                 app.f_end_Det   = 2500*ones(app.Ndet,1);
