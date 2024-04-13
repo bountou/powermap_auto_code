@@ -115,7 +115,6 @@ classdef main_AutoMode < matlab.apps.AppBase
         x;  % hydrophone signals or ambisonic signals
         Fs; % sampling frequency
         M;  % number of channels
-      %  N;  % number of samples
         duration;
         channel; % active channel
         time_vec;
@@ -128,7 +127,7 @@ classdef main_AutoMode < matlab.apps.AppBase
         f_end_Det;
         Ndet;
         Labels;
-        
+
 
         % Array
         hydro_dirs_rad;
@@ -161,7 +160,6 @@ classdef main_AutoMode < matlab.apps.AppBase
         F=struct('cdata',[],'colormap',[]); % frame data
         threshold; % clim
         col; % colormap
-
        
     end
     
@@ -486,6 +484,7 @@ classdef main_AutoMode < matlab.apps.AppBase
                 for n=1:app.Ndet
                     app.Labels{n} = num2str(app.t_start_Det(n));
                 end
+
             elseif app.AdobeAuditionButton_2.Value == true
                 [file_in,path_in] = uigetfile('*.csv');
                 fileName = fullfile(path_in,file_in);
@@ -503,13 +502,13 @@ classdef main_AutoMode < matlab.apps.AppBase
 
                 LOG0 = readtable(fileName);
 
-                Fs_char = LOG0.TimeFormat{1};
+                Fs_char = LOG0.TimeFormat{1}; % sampling frequency in char type
                 tf=1; i=0;
                 while tf==1
                     i=i+1;
                     [~,tf] = str2num(Fs_char(1:i));
                 end
-                F_sampling = str2double(Fs_char(1:i-2));
+                F_sampling = str2double(Fs_char(1:i-2)); % sampling frequency in numeric type
 
                 app.Ndet = size(LOG0,1)+1; % including the dummy detection
 
@@ -518,8 +517,8 @@ classdef main_AutoMode < matlab.apps.AppBase
                 tmp2   = tmp1 + LOG0.Duration./F_sampling+app.tausecEditField.Value;
                 app.t_end_Det  = [0.5; tmp2];
 
-                app.f_start_Det = 200*ones(app.Ndet,1);
-                app.f_end_Det   = 2500*ones(app.Ndet,1);
+                app.f_start_Det = 200*ones(app.Ndet,1);  % fixed f_start = 200 Hz
+                app.f_end_Det   = 2500*ones(app.Ndet,1); % fixed f_start = 2500 Hz
 
                 app.Labels = cell(app.Ndet,1);
                 for n=1:app.Ndet
@@ -987,7 +986,7 @@ classdef main_AutoMode < matlab.apps.AppBase
                 K = length(indf); % number of frequencies to average over
 
                 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-                % Use a subset of frequencies for lighter computation
+                % Use a subset of frequencies for lighter computation or comment out
                 if K>50
                     K_approx = 40;
                     df=floor(K/K_approx);
@@ -1072,7 +1071,7 @@ classdef main_AutoMode < matlab.apps.AppBase
                             Rot = euler2rotationMatrix(grid_dirs(l,1), -grid_dirs(l,2), 0, 'zyx'); % yaw-pitch-roll
                             M_rot(:,:,l) = getSHrotMtx(Rot, orderN, 'real');
                         end
-                        P_avf = zeros(L,T);
+                        P_avf = zeros(L,T); 
                         for tt=1:T
                             St = squeeze(S_n(1:N_comp,tt,indf));
                             for l=1:L
@@ -1085,8 +1084,153 @@ classdef main_AutoMode < matlab.apps.AppBase
                             app.LabelProgress.Text = ['Processed ' num2str(fix(round(tt/T*100)*10^3)/10^3) '%'];
                             pause(eps)
                         end
+                    case "SH-BF+CroPaC"
+                        % SH-BF
+                        B_avf = zeros(L,T);
+                        for tt=1:T
+                            power = abs(W_hc(:,1:N_comp)*squeeze(S_n(1:N_comp,tt,indf))).^2;
+                            B_avf(:,tt) = mean(power,2);
+                            app.LabelProgress.Text = ['Processed ' num2str(fix(round(tt/T*100)*10^3)/10^3) '%'];
+                            pause(eps)
+                        end
+                        % CroPaC (1st-order)
+                        M_rot = zeros(N_comp,N_comp,L);
+                        for l=1:L
+                            Rot = euler2rotationMatrix(grid_dirs(l,1), -grid_dirs(l,2), 0, 'zyx'); % yaw-pitch-roll
+                            M_rot(:,:,l) = getSHrotMtx(Rot, orderN, 'real');
+                        end
+                        G_avf = zeros(L,T); 
+                        for tt=1:T
+                            St = squeeze(S_n(1:N_comp,tt,indf));
+                            for l=1:L
+                                St_rot = M_rot(:,:,l)*St;
+                                G_num = 2/sqrt(3)*real(conj(St_rot(1,:)).*St_rot(4,:));
+                                G_den = abs(St_rot(1,:)).^2 + sum(abs(St_rot(2:4,:)/sqrt(3)).^2);
+                                G = max(eps,G_num./(G_den+eps));
+                                G_avf(l,tt) = mean(G);
+                            end
+                            app.LabelProgress.Text = ['Processed ' num2str(fix(round(tt/T*100)*10^3)/10^3) '%'];
+                            pause(eps)
+                        end
+                        P_avf = B_avf.*G_avf;
+                    case "SH-BF+CroPaC v2"
+                        M_rot = zeros(N_comp,N_comp,L);
+                        for l=1:L
+                            Rot = euler2rotationMatrix(grid_dirs(l,1), -grid_dirs(l,2), 0, 'zyx'); % yaw-pitch-roll
+                            M_rot(:,:,l) = getSHrotMtx(Rot, orderN, 'real');
+                        end
+                        P_avf = zeros(L,T);
+                        for tt=1:T
+                            % SH-BF
+                            power = abs(W_hc(:,1:N_comp)*squeeze(S_n(1:N_comp,tt,indf))).^2;
+                            % CroPaC
+                            St = squeeze(S_n(1:N_comp,tt,indf));
+                            G = zeros(L,K);
+                            for l=1:L
+                                St_rot = M_rot(:,:,l)*St;
+                                G_num = 2/sqrt(3)*real(conj(St_rot(1,:)).*St_rot(4,:));
+                                G_den = abs(St_rot(1,:)).^2 + sum(abs(St_rot(2:4,:)/sqrt(3)).^2);
+                                G(l,:) = max(eps,G_num./(G_den+eps));
+                            end
+                            P_avf(:,tt) = mean(G.*power,2);
+                            app.LabelProgress.Text = ['Processed ' num2str(fix(round(tt/T*100)*10^3)/10^3) '%'];
+                            pause(eps)
+                        end
+                    case "SH-MUSIC+CroPaC"
+                        % SH-MUSIC
+                        nSrc = app.N_sourcesMUSICEditField.Value;
+                        a_tau = 0.8; % temporal smoothing constant
+                        B_avf = zeros(L,T);
+                        COV_old = zeros(N_comp,N_comp,K);
+                        for tt=1:T
+                            temp_p = zeros(K,L);
+                            for kk=1:K
+                                Sk =  S_n(1:N_comp,tt,indf(kk));
+                                COV_new = Sk*Sk'+1e-6*eye(N_comp);
+                                if tt==1
+                                    COV = COV_new;
+                                else
+                                    COV = (1-a_tau)*COV_new + a_tau*COV_old(:,:,kk);
+                                end
+                                COV_old(:,:,kk)=COV;
+                                [U,~] = svd(COV); % eigenvalue decomposition with svd
+                                Un = U(:,(nSrc+1):N_comp); % Noise subspace
+                                tempk_p = zeros(1,L);
+                                for l = 1:L
+                                    w_hc = W_hc(l,1:N_comp).';
+                                    tempk_p(l) = abs(1/(w_hc'*(Un*Un')*w_hc)); % pseudospectrum
+                                end
+                                temp_p(kk,:)=tempk_p;
+                            end
+                            B_avf(:,tt) = mean(temp_p,1);
+                            app.LabelProgress.Text = ['Processed ' num2str(fix(round(tt/T*100)*10^3)/10^3) '%'];
+                            pause(eps)
+                        end
+                        % CroPaC (1st-order)
+                        M_rot = zeros(N_comp,N_comp,L);
+                        for l=1:L
+                            Rot = euler2rotationMatrix(grid_dirs(l,1), -grid_dirs(l,2), 0, 'zyx'); % yaw-pitch-roll
+                            M_rot(:,:,l) = getSHrotMtx(Rot, orderN, 'real');
+                        end
+                        G_avf = zeros(L,T); 
+                        for tt=1:T
+                            St = squeeze(S_n(1:N_comp,tt,indf));
+                            for l=1:L
+                                St_rot = M_rot(:,:,l)*St;
+                                G_num = 2/sqrt(3)*real(conj(St_rot(1,:)).*St_rot(4,:));
+                                G_den = abs(St_rot(1,:)).^2 + sum(abs(St_rot(2:4,:)/sqrt(3)).^2);
+                                G = max(eps,G_num./(G_den+eps));
+                                G_avf(l,tt) = mean(G);
+                            end
+                            app.LabelProgress.Text = ['Processed ' num2str(fix(round(tt/T*100)*10^3)/10^3) '%'];
+                            pause(eps)
+                        end
+                        P_avf = B_avf.*G_avf;
+                    case "SH-MUSIC+CroPaC v2"
+                        M_rot = zeros(N_comp,N_comp,L);
+                        for l=1:L
+                            Rot = euler2rotationMatrix(grid_dirs(l,1), -grid_dirs(l,2), 0, 'zyx'); % yaw-pitch-roll
+                            M_rot(:,:,l) = getSHrotMtx(Rot, orderN, 'real');
+                        end
+                        P_avf = zeros(L,T);
+                        nSrc = app.N_sourcesMUSICEditField.Value;
+                        a_tau = 0.8; % temporal smoothing constant
+                        COV_old = zeros(N_comp,N_comp,K);
+                        for tt=1:T
+                            % SH-MUSIC
+                            temp_p = zeros(K,L);
+                            for kk=1:K
+                                Sk =  S_n(1:N_comp,tt,indf(kk));
+                                COV_new = Sk*Sk'+1e-6*eye(N_comp);
+                                if tt==1
+                                    COV = COV_new;
+                                else
+                                    COV = (1-a_tau)*COV_new + a_tau*COV_old(:,:,kk);
+                                end
+                                COV_old(:,:,kk)=COV;
+                                [U,~] = svd(COV); % eigenvalue decomposition with svd
+                                Un = U(:,(nSrc+1):N_comp); % Noise subspace
+                                tempk_p = zeros(1,L);
+                                for l = 1:L
+                                    w_hc = W_hc(l,1:N_comp).';
+                                    tempk_p(l) = abs(1/(w_hc'*(Un*Un')*w_hc)); % pseudospectrum
+                                end
+                                temp_p(kk,:)=tempk_p;
+                            end
+                            % CroPaC (1st-order)
+                            St = squeeze(S_n(1:N_comp,tt,indf));
+                            G = zeros(L,K);
+                            for l=1:L
+                                St_rot = M_rot(:,:,l)*St;
+                                G_num = 2/sqrt(3)*real(conj(St_rot(1,:)).*St_rot(4,:));
+                                G_den = abs(St_rot(1,:)).^2 + sum(abs(St_rot(2:4,:)/sqrt(3)).^2);
+                                G(l,:) = max(eps,G_num./(G_den+eps));
+                            end
+                            P_avf(:,tt) = mean(G.*temp_p.',2);
+                            app.LabelProgress.Text = ['Processed ' num2str(fix(round(tt/T*100)*10^3)/10^3) '%'];
+                            pause(eps)
+                        end
                 end
-
 
 
                 % Temporal smoothing 
@@ -1205,10 +1349,8 @@ classdef main_AutoMode < matlab.apps.AppBase
             app.ExportambifilesButton.Enable = 'off';
             app.DoneLamp_4.Color = [0.65 0.65 0.65];
 
-            % Select directory to save the videos, the text file, and the edl
+            % Select directory to save the ambisonic audio signals
             selpath = uigetdir;
-
-
 
             if app.isAmbisonic==false
                 for n=1:app.Ndet
@@ -1727,9 +1869,9 @@ classdef main_AutoMode < matlab.apps.AppBase
 
             % Create MethodDropDown
             app.MethodDropDown = uidropdown(app.PowermapvideoPanel);
-            app.MethodDropDown.Items = {'SH-Beamforming', 'SH-MVDR', 'SH-MUSIC', 'CroPaC'};
+            app.MethodDropDown.Items = {'SH-Beamforming', 'SH-MVDR', 'SH-MUSIC', 'CroPaC', 'SH-BF+CroPaC', 'SH-BF+CroPaC v2', 'SH-MUSIC+CroPaC', 'SH-MUSIC+CroPaC v2'};
             app.MethodDropDown.FontSize = 14;
-            app.MethodDropDown.Position = [369 322 149 22];
+            app.MethodDropDown.Position = [369 322 165 22];
             app.MethodDropDown.Value = 'SH-MUSIC';
 
             % Create Label_2
@@ -1907,6 +2049,7 @@ classdef main_AutoMode < matlab.apps.AppBase
             app.MaxgaindBEditField.HorizontalAlignment = 'center';
             app.MaxgaindBEditField.FontSize = 14;
             app.MaxgaindBEditField.Position = [118 15 46 22];
+            app.MaxgaindBEditField.Value = 15;
 
             % Create EncodingDropDown
             app.EncodingDropDown = uidropdown(app.AnalysisPanel);
