@@ -49,7 +49,8 @@ classdef RenderPowermap_auto < matlab.apps.AppBase
 
                 if app.CallingApp.GridDropDown.Value == "coarse uniform" || app.CallingApp.GridDropDown.Value == "fine uniform"
                     P = reshape(P_avfn(:,tt),[size(PHI,1),size(PHI,2)]);
-                elseif app.CallingApp.GridDropDown.Value == "coarse t-design" || app.CallingApp.GridDropDown.Value == "fine t-design"
+                else
+              %  elseif app.CallingApp.GridDropDown.Value == "coarse t-design" || app.CallingApp.GridDropDown.Value == "fine t-design"
                     P = griddata(grid_dirs(:,1),grid_dirs(:,2),P_avfn(:,tt),PHI,THETA,'cubic');
                 end
 
